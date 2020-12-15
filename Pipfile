@@ -4,16 +4,14 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-tensorflow = "*"
+wget = "*"
 ipykernel = "*"
 torch = "*"
-transformers = "*"
-wget = "*"
 pandas = "*"
-jupyter = "*"
-ipywidgets = "*"
+transformers = "*"
+numpy = "*"
 
 [dev-packages]
 
 [requires]
-python_version = "3.8"
+python_version = "3.7"
