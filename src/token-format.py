@@ -21,60 +21,84 @@ df = pd.read_csv("data/cola_public/raw/in_domain_train.tsv",
 sentences = df.sentence.values
 labels = df.label.values
 
-# BERT tokenizer
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+# Load the BERT tokenizer.
+print('Loading BERT tokenizer...')
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
 
-# BERT tokenization
-# - must be a functional way to do this?
+# Tokenize all of the sentences and map the tokens to thier word IDs.
 input_ids = []
 attention_masks = []
 
+# For every sentence...
 for sent in sentences:
-    encoded_dict = tokenizer.encode_plus(sent,
-                                         padding='max_length',
-                                         max_length=64,
-                                         return_tensors='pt',
-                                         return_attention_mask=True)
+    # `encode_plus` will:
+    #   (1) Tokenize the sentence.
+    #   (2) Prepend the `[CLS]` token to the start.
+    #   (3) Append the `[SEP]` token to the end.
+    #   (4) Map tokens to their IDs.
+    #   (5) Pad or truncate the sentence to `max_length`
+    #   (6) Create attention masks for [PAD] tokens.
+    encoded_dict = tokenizer.encode_plus(
+                        sent,                      # Sentence to encode.
+                        add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                        max_length = 64,           # Pad & truncate all sentences.
+                        padding = 'max_length',
+                        return_attention_mask = True,   # Construct attn. masks.
+                        return_tensors = 'pt',     # Return pytorch tensors.
+                   )
+
+    # Add the encoded sentence to the list.
     input_ids.append(encoded_dict['input_ids'])
+
+    # And its attention mask (simply differentiates padding from non-padding).
     attention_masks.append(encoded_dict['attention_mask'])
 
-# convert lists to pytorch tensors
+# Convert the lists into tensors.
 input_ids = torch.cat(input_ids, dim=0)
 attention_masks = torch.cat(attention_masks, dim=0)
 labels = torch.tensor(labels)
 
-# training and validation split
-# - must be a better way to split the data?
 dataset = TensorDataset(input_ids, attention_masks, labels)
 train_size = int(0.9 * len(dataset))
-valid_size = len(dataset) - train_size
-train_dataset, valid_dataset = random_split(dataset, [train_size, valid_size])
+val_size = len(dataset) - train_size
+train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-# batch size
 batch_size = 32
 
-# data loaders
-train_dataloader = DataLoader(train_dataset,
-                              sampler = RandomSampler(train_dataset),
-                              batch_size = batch_size)
-valid_dataloader = DataLoader(valid_dataset,
-                              sampler = SequentialSampler(valid_dataset),
-                              batch_size = batch_size)
+# Create the DataLoaders for our training and validation sets.
+# We'll take training samples in random order.
+train_dataloader = DataLoader(
+            train_dataset,  # The training samples.
+            sampler = RandomSampler(train_dataset), # Select batches randomly
+            batch_size = batch_size # Trains with this batch size.
+        )
+
+# For validation the order doesn't matter, so we'll just read them sequentially.
+validation_dataloader = DataLoader(
+            val_dataset, # The validation samples.
+            sampler = SequentialSampler(val_dataset), # Pull out batches sequentially.
+            batch_size = batch_size # Evaluate with this batch size.
+        )
 
 # configuration
 epochs = 4
 
-# model
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased',
-                                                      num_labels = 2,
-                                                      output_attentions=False,
-                                                      output_hidden_states=False)
+model = BertForSequenceClassification.from_pretrained(
+    "bert-base-uncased", # Use the 12-layer BERT model, with an uncased vocab.
+    num_labels = 2, # The number of output labels--2 for binary classification.
+                    # You can increase this for multi-class tasks.
+    output_attentions = False, # Whether the model returns attentions weights.
+    output_hidden_states = False, # Whether the model returns all hidden-states.
+)
+
+# Tell pytorch to run this model on the GPU.
 model.cuda()
 
 # optimizer
 optimizer = AdamW(model.parameters(),
-                  lr = 2e-5,
-                  eps = 12-8)
+                  lr = 2e-5, # args.learning_rate - default is 5e-5, our notebook had 2e-5
+                  eps = 1e-8 # args.adam_epsilon  - default is 1e-8.
+                )
 
 # scheduler
 scheduler = get_linear_schedule_with_warmup(optimizer,
@@ -179,7 +203,8 @@ for epoch_i in range(0, epochs):
         loss, logits = model(b_input_ids,
                              token_type_ids=None,
                              attention_mask=b_input_mask,
-                             labels=b_labels)
+                             labels=b_labels,
+                             return_dict=True)
 
         # Accumulate the training loss over all of the batches so that we can
         # calculate the average loss at the end. `loss` is a Tensor containing a
@@ -188,7 +213,7 @@ for epoch_i in range(0, epochs):
         total_train_loss += loss.item()
 
         # Perform a backward pass to calculate the gradients.
-        loss.backward()
+|       loss.backward()
 
         # Clip the norm of the gradients to 1.0.
         # This is to help prevent the "exploding gradients" problem.
@@ -259,13 +284,15 @@ for epoch_i in range(0, epochs):
             # https://huggingface.co/transformers/v2.2.0/model_doc/bert.html#transformers.BertForSequenceClassification
             # Get the "logits" output by the model. The "logits" are the output
             # values prior to applying an activation function like the softmax.
-            (loss, logits) = model(b_input_ids,
+            loss, logits = model(b_input_ids,
                                    token_type_ids=None,
                                    attention_mask=b_input_mask,
-                                   labels=b_labels)
+                                   labels=b_labels,
+                                   return_dict=True)
 
         # Accumulate the validation loss.
         total_eval_loss += loss.item()
+
 
         # Move logits and labels to CPU
         logits = logits.detach().cpu().numpy()

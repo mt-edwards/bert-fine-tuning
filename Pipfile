@@ -11,6 +11,9 @@ pandas = "*"
 transformers = "*"
 numpy = "*"
 jupyter = "*"
+datasets = "*"
+scipy = "*"
+sklearn = "*"
 
 [dev-packages]
 
